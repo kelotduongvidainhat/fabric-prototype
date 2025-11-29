@@ -1,0 +1,172 @@
+Organizations:
+    # ---------------------------------------------------------------------------
+    # Orderer Organization
+    # ---------------------------------------------------------------------------
+    - &OrdererOrg
+        Name: OrdererOrg
+        ID: OrdererMSP
+        MSPDir: crypto-config/ordererOrganizations/example.com/msp
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('OrdererMSP.member')"
+            Writers:
+                Type: Signature
+                Rule: "OR('OrdererMSP.member')"
+            Admins:
+                Type: Signature
+                Rule: "OR('OrdererMSP.admin')"
+        
+        # OrdererEndpoints chỉ cần thiết cho cấu hình cập nhật kênh
+        OrdererEndpoints:
+            - orderer.example.com:7050
+
+    # ---------------------------------------------------------------------------
+    # Org1 - Peer Organization
+    # ---------------------------------------------------------------------------
+    - &Org1
+        Name: Org1MSP
+        ID: Org1MSP
+        MSPDir: crypto-config/peerOrganizations/org1.example.com/msp
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('Org1MSP.admin', 'Org1MSP.peer', 'Org1MSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('Org1MSP.admin', 'Org1MSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('Org1MSP.admin')"
+            Endorsement:
+                Type: Signature
+                Rule: "OR('Org1MSP.peer')"
+        AnchorPeers: # Dùng cho khám phá và giao tiếp giữa các tổ chức
+        - Host: peer0.org1.example.com
+          Port: 7051
+
+Capabilities:
+    # Khả năng (Capabilities) cho Kênh
+    Channel: &ChannelCapabilities
+        V2_0: true
+    # Khả năng cho Dịch vụ Orderer
+    Orderer: &OrdererCapabilities
+        V2_0: true
+    # Khả năng cho Cấu hình Ứng dụng/Chaincode
+    Application: &ApplicationCapabilities
+        V2_0: true
+
+# ---------------------------------------------------------------------------
+# Cấu hình Mặc định cho Ứng dụng (Peers)
+# ---------------------------------------------------------------------------
+Application: &ApplicationDefaults
+    Organizations: # Danh sách các Org tham gia ứng dụng. Thường để trống ở đây.
+    Policies:
+        Readers:
+            Type: ImplicitMeta
+            Rule: "ANY Readers"
+        Writers:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+        Admins:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Admins"
+        LifecycleEndorsement:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Endorsement"
+        Endorsement:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Endorsement"
+    Capabilities:
+        <<: *ApplicationCapabilities
+
+# ---------------------------------------------------------------------------
+# Cấu hình Mặc định cho Orderer (System Channel)
+# ---------------------------------------------------------------------------
+Orderer: &OrdererDefaults
+    # Đặt Addresses và Organizations LÊN TRÊN Policies để tránh lỗi cú pháp YAML/Fabric
+    # -------------------------------------------------------------------
+    # PHẦN QUAN TRỌNG: Cung cấp Orderer Addresses cho Genesis Block
+    Addresses:
+        - orderer.example.com:7050
+    Organizations: # Các tổ chức tham gia cấu hình Orderer (Chỉ có OrdererOrg)
+        - *OrdererOrg
+    # -------------------------------------------------------------------
+    
+    OrdererType: etcdraft
+    EtcdRaft:
+        Consenters:
+        - Host: orderer.example.com
+          Port: 7050
+          # ĐƯỜNG DẪN NÀY LÀ CỤC BỘ (HOST) - Phải chính xác!
+          ClientTLSCert: crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+          ServerTLSCert: crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+    BatchTimeout: 2s
+    BatchSize:
+        MaxMessageCount: 10
+        AbsoluteMaxBytes: 99 MB
+        PreferredMaxBytes: 512 KB
+    
+    # Policies phải nằm sau các định nghĩa cấp cao khác trong khối Orderer.
+    Policies:
+        Readers:
+            Type: ImplicitMeta
+            Rule: "ANY Readers"
+        Writers:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+        Admins:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Admins"
+        BlockValidation:
+            Type: ImplicitMeta
+            Rule: "ANY Writers" # Hoặc Rule: "ANY Readers" nếu muốn nới lỏng
+
+# ---------------------------------------------------------------------------
+# Profiles (Các hồ sơ để tạo Block/Giao dịch)
+# ---------------------------------------------------------------------------
+Profiles:
+    # Profile cho GENESIS BLOCK (Kênh Hệ thống)
+    TwoOrgsOrdererGenesis:
+        Policies:
+            Readers:
+                Type: ImplicitMeta
+                Rule: "ANY Readers"
+            Writers:
+                Type: ImplicitMeta
+                Rule: "ANY Writers"
+            Admins:
+                Type: ImplicitMeta
+                Rule: "MAJORITY Admins"
+        Orderer:
+            <<: *OrdererDefaults # Kế thừa tất cả cấu hình Orderer mặc định
+            Organizations:
+                - *OrdererOrg # Đảm bảo OrdererOrg được thêm vào cấu hình kênh
+            Capabilities:
+                <<: *OrdererCapabilities
+        Consortiums:
+            SampleConsortium:
+                Organizations: # Các Org có thể tạo kênh ứng dụng (Application Channels)
+                    - *Org1
+        Capabilities:
+            <<: *ChannelCapabilities
+    
+    # Profile cho KÊNH ỨNG DỤNG (Application Channel)
+    TwoOrgsChannel:
+        Consortium: SampleConsortium
+        Policies:
+            Readers:
+                Type: ImplicitMeta
+                Rule: "ANY Readers"
+            Writers:
+                Type: ImplicitMeta
+                Rule: "ANY Writers"
+            Admins:
+                Type: ImplicitMeta
+                Rule: "MAJORITY Admins"
+        Application:
+            <<: *ApplicationDefaults # Kế thừa cấu hình ứng dụng mặc định
+            Organizations:
+                - *Org1
+            Capabilities:
+                <<: *ApplicationCapabilities

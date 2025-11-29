@@ -1,0 +1,128 @@
+version: '3.7'
+
+networks:
+  fabric-net:
+    name: fabric-prototype-net
+
+volumes:
+  couchdb-data:
+
+services:
+
+  # 1. ORDERER SERVICE
+  orderer.example.com:
+    container_name: orderer.example.com
+    image: hyperledger/fabric-orderer:2.5.9
+    hostname: orderer.example.com
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/orderer
+    command: orderer
+    environment:
+      - FABRIC_LOGGING_LEVEL=INFO
+      - ORDERER_HOST=orderer.example.com
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_LISTENPORT=7050
+      - ORDERER_GENERAL_GENESISMETHOD=file
+      - ORDERER_GENERAL_GENESISFILE=/var/hyperledger/network/channel-artifacts/orderer.genesis.block
+      - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
+      - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/network/crypto-config/orderer/msp
+      # TLS
+      - ORDERER_GENERAL_TLS_ENABLED=true
+      - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/network/crypto-config/orderer/tls/server.key
+      - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/network/crypto-config/orderer/tls/server.crt
+      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/network/crypto-config/orderer/tls/ca.crt] # NOTE: Đơn giản hóa nếu chỉ có 1 CA
+      # Raft
+      - ORDERER_CONSENSUS_BOOTSTRAP_FILE=/var/hyperledger/network/channel-artifacts/orderer.genesis.block
+      - ORDERER_CHANNEL_LISTENADDRESS=0.0.0.0
+    ports:
+      - "7050:7050"
+    volumes:
+      - ./channel-artifacts/genesis.block:/var/hyperledger/network/channel-artifacts/orderer.genesis.block
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp:/var/hyperledger/network/crypto-config/orderer/msp
+      - ./crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/tls:/var/hyperledger/network/crypto-config/orderer/tls
+      # NOTE: Đảm bảo thư mục tlsca này tồn tại trên máy host của bạn
+      - ./crypto-config/ordererOrganizations/example.com/tlsca:/var/hyperledger/network/crypto-config/orderer/tlsca
+    networks:
+      - fabric-net
+
+  # 2. COUCHDB SERVICE
+  couchdb0:
+    container_name: couchdb0
+    image: hyperledger/fabric-couchdb:0.4.22 # FIXED: Nên dùng version cụ thể thay vì latest
+    ports:
+      - "5984:5984"
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=password
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+    networks:
+      - fabric-net
+
+  # 3. PEER SERVICE (Org1)
+  peer0.org1.example.com:
+    container_name: peer0.org1.example.com
+    image: hyperledger/fabric-peer:2.5.9
+    hostname: peer0.org1.example.com
+    command: peer node start
+    environment:
+      - FABRIC_LOGGING_LEVEL=INFO
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer0.org1.example.com
+      - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+      - CORE_PEER_CHAINCODEADDRESS=peer0.org1.example.com:7052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org1.example.com:7051
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.example.com:7051 # NOTE: Thêm dòng này để peer tự bootstrap
+      # MSP Configuration
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp # FIXED: Trỏ về MSP của Peer, KHÔNG PHẢI của Admin User
+      # TLS
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCAS_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      # State DB
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb0:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=password
+    ports:
+      - "7051:7051"
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls:/etc/hyperledger/fabric/tls
+      - ./crypto-config/peerOrganizations/org1.example.com/users:/etc/hyperledger/fabric/users
+    depends_on:
+      - orderer.example.com
+      - couchdb0
+    networks:
+      - fabric-net
+
+  # 4. CLI SERVICE
+  cli:
+    container_name: cli
+    image: hyperledger/fabric-tools:2.5.9
+    command: /bin/bash
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    stdin_open: true
+    tty: true
+    environment:
+      - FABRIC_LOGGING_LEVEL=INFO
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      # NOTE: CLI dùng Admin User là CHÍNH XÁC
+      - CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_TLS_ROOTCAS_FILE=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt
+      - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
+      - ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+    volumes:
+      - ./:/opt/gopath/src/github.com/hyperledger/fabric/peer
+      - ../asset-chaincode:/opt/gopath/src/github.com/hyperledger/fabric/asset-chaincode
+      # NOTE: Mount toàn bộ thư mục crypto-config để CLI dễ dàng truy cập tất cả chứng chỉ nếu cần
+      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config      
+    depends_on:
+      - peer0.org1.example.com
+    networks:
+      - fabric-net
