@@ -29,7 +29,7 @@ services:
       - ORDERER_GENERAL_TLS_ENABLED=true
       - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/network/crypto-config/orderer/tls/server.key
       - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/network/crypto-config/orderer/tls/server.crt
-      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/network/crypto-config/orderer/tls/ca.crt] # NOTE: Đơn giản hóa nếu chỉ có 1 CA
+      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/network/crypto-config/orderer/tls/ca.crt, /var/hyperledger/network/crypto-config/orderer/tlsca/tlsca.example.com-cert.pem]
       # Raft
       - ORDERER_CONSENSUS_BOOTSTRAP_FILE=/var/hyperledger/network/channel-artifacts/orderer.genesis.block
       - ORDERER_CHANNEL_LISTENADDRESS=0.0.0.0
@@ -87,6 +87,13 @@ services:
       - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb0:5984
       - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
       - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=password
+      
+      # Error: endorsement failure during invoke.
+      # Thêm dòng này để peer sử dụng đúng network
+      - CORE_DOCKER_HOSTCONFIG_NETWORKMODE=fabric-prototype-net
+      # Cho phép peer chạy chaincode trong Docker container 
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric-prototype-net
+      
     ports:
       - "7051:7051"
     volumes:
@@ -121,7 +128,12 @@ services:
       - ./:/opt/gopath/src/github.com/hyperledger/fabric/peer
       - ../asset-chaincode:/opt/gopath/src/github.com/hyperledger/fabric/asset-chaincode
       # NOTE: Mount toàn bộ thư mục crypto-config để CLI dễ dàng truy cập tất cả chứng chỉ nếu cần
-      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config      
+      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config 
+      
+      # Mount TLS cert của peer0 để CLI có thể kết nối TLS
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt:/etc/hyperledger/fabric/tls/ca.crt
+
+      - ./crypto-config/peerOrganizations/tlsca:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/tlsca
     depends_on:
       - peer0.org1.example.com
     networks:

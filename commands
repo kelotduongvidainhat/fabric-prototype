@@ -1,0 +1,23 @@
+~/fabric-prototype/network
+    cryptogen generate --config=./crypto-config.yaml
+    export FABRIC_CFG_PATH=$PWD
+    configtxgen -profile TwoOrgsOrdererGenesis -channelID system-channel -outputBlock ./channel-artifacts/genesis.block
+    configtxgen -profile TwoOrgsChannel -outputCreateChannelTx ./channel-artifacts/mychannel.tx -channelID mychannel
+    configtxgen -profile TwoOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org1MSPanchors.tx -channelID mychannel -asOrg Org1MSP
+
+    docker compose up -d
+    
+    docker exec -it cli bash
+    peer channel create -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/mychannel.tx --outputBlock ./mychannel.block --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
+    peer channel join -b mychannel.block
+    peer channel update -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/Org1MSPanchors.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
+
+    peer lifecycle chaincode package channel-artifacts/asset.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric/asset-chaincode/chaincode --label asset_1.0
+    peer lifecycle chaincode install channel-artifacts/asset.tar.gz
+    export CC_PACKAGE_ID="asset_1.0:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    peer lifecycle chaincode approveformyorg -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name asset --version 1.0 --package-id $CC_PACKAGE_ID --sequence 1 --init-required
+    peer lifecycle chaincode checkcommitreadiness --channelID mychannel --name asset --version 1.0 --sequence 1 --init-required --output json
+    peer lifecycle chaincode commit -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name asset --version 1.0 --sequence 1 --init-required --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem
+    peer chaincode invoke -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem -C mychannel -n asset --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem -c '{"Args":["InitLedger"]}' --isInit
+    peer chaincode query -C mychannel -n asset -c '{"Args":["GetAllAssets"]}'
+    
