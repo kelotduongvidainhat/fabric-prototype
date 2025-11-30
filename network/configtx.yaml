@@ -127,7 +127,7 @@ Orderer: &OrdererDefaults
 # ---------------------------------------------------------------------------
 Profiles:
     # Profile cho GENESIS BLOCK (Kênh Hệ thống)
-    TwoOrgsOrdererGenesis:
+    OneOrgOrdererGenesis:
         Policies:
             Readers:
                 Type: ImplicitMeta
@@ -152,7 +152,7 @@ Profiles:
             <<: *ChannelCapabilities
     
     # Profile cho KÊNH ỨNG DỤNG (Application Channel)
-    TwoOrgsChannel:
+    OneOrgChannel:
         Consortium: SampleConsortium
         Policies:
             Readers:

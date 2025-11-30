@@ -29,7 +29,7 @@ services:
       - ORDERER_GENERAL_TLS_ENABLED=true
       - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/network/crypto-config/orderer/tls/server.key
       - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/network/crypto-config/orderer/tls/server.crt
-      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/network/crypto-config/orderer/tls/ca.crt, /var/hyperledger/network/crypto-config/orderer/tlsca/tlsca.example.com-cert.pem]
+      - ORDERER_GENERAL_TLS_ROOTCAS=[/var/hyperledger/network/crypto-config/orderer/tls/ca.crt] # NOTE: Đơn giản hóa nếu chỉ có 1 CA
       # Raft
       - ORDERER_CONSENSUS_BOOTSTRAP_FILE=/var/hyperledger/network/channel-artifacts/orderer.genesis.block
       - ORDERER_CHANNEL_LISTENADDRESS=0.0.0.0
@@ -67,6 +67,10 @@ services:
     environment:
       - FABRIC_LOGGING_LEVEL=INFO
       - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+
+      # Thêm dòng này để sử lỗi "Failed to invoke chaincode"
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric-prototype-net
+
       - CORE_PEER_ID=peer0.org1.example.com
       - CORE_PEER_ADDRESS=peer0.org1.example.com:7051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
@@ -88,12 +92,7 @@ services:
       - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
       - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=password
       
-      # Error: endorsement failure during invoke.
-      # Thêm dòng này để peer sử dụng đúng network
-      - CORE_DOCKER_HOSTCONFIG_NETWORKMODE=fabric-prototype-net
-      # Cho phép peer chạy chaincode trong Docker container 
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric-prototype-net
-      
+    
     ports:
       - "7051:7051"
     volumes:
@@ -128,13 +127,82 @@ services:
       - ./:/opt/gopath/src/github.com/hyperledger/fabric/peer
       - ../asset-chaincode:/opt/gopath/src/github.com/hyperledger/fabric/asset-chaincode
       # NOTE: Mount toàn bộ thư mục crypto-config để CLI dễ dàng truy cập tất cả chứng chỉ nếu cần
-      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config 
-      
-      # Mount TLS cert của peer0 để CLI có thể kết nối TLS
-      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt:/etc/hyperledger/fabric/tls/ca.crt
-
-      - ./crypto-config/peerOrganizations/tlsca:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/tlsca
+      - ./crypto-config:/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config
+      - ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls:/etc/hyperledger/fabric/tls
     depends_on:
       - peer0.org1.example.com
     networks:
       - fabric-net
+
+  ca.org1.example.com:
+    container_name: ca.org1.example.com
+    image: hyperledger/fabric-ca:1.5.9
+    hostname: ca.org1.example.com
+    command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_NAME=ca-org1
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+      - FABRIC_CA_SERVER_PORT=7054
+      
+      # --- CẤU HÌNH QUAN TRỌNG ĐỂ KHỚP VỚI CRYPTOGEN ---
+      # 1. Trỏ tới file Public Certificate (file này tên cố định nên dễ)
+      - FABRIC_CA_SERVER_CA_CERTFILE=/etc/hyperledger/fabric-ca-server/ca.org1.example.com-cert.pem
+      
+      # 2. Trỏ tới file Private Key (file này bạn vừa đổi tên ở bước 1)
+      - FABRIC_CA_SERVER_CA_KEYFILE=/etc/hyperledger/fabric-ca-server/priv_sk
+      
+    ports:
+      - "7054:7054"
+    volumes:
+      # Mount thư mục chứa key vào container
+      - ./crypto-config/peerOrganizations/org1.example.com/ca/:/etc/hyperledger/fabric-ca-server/
+    networks:
+      - fabric-net
+
+
+# Các lệnh dưới đây có cần phải thay đổi sao cho phù hợp với cấu hình mạng của tớ không?
+# ~/fabric-prototype/network
+#     cryptogen generate --config=./crypto-config.yaml
+#     export FABRIC_CFG_PATH=$PWD
+#     configtxgen -profile TwoOrgsOrdererGenesis -channelID system-channel -outputBlock ./channel-artifacts/genesis.block
+#     configtxgen -profile TwoOrgsChannel -outputCreateChannelTx ./channel-artifacts/mychannel.tx -channelID mychannel
+#     configtxgen -profile TwoOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org1MSPanchors.tx -channelID mychannel -asOrg Org1MSP
+
+#     docker compose up -d
+    
+#     docker exec -it cli bash
+#     peer channel create -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/mychannel.tx --outputBlock ./mychannel.block --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
+#     # peer channel create -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/mychannel.tx --outputBlock ./mychannel.block --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tls/ca.crt
+#     peer channel join -b mychannel.block
+#     peer channel update -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/Org1MSPanchors.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
+
+#     peer lifecycle chaincode package channel-artifacts/asset.tar.gz --path /opt/gopath/src/github.com/hyperledger/fabric/asset-chaincode/chaincode --label asset_1.0
+#     peer lifecycle chaincode install channel-artifacts/asset.tar.gz
+#     export CC_PACKAGE_ID="asset_1.0:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#     peer lifecycle chaincode approveformyorg -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name asset --version 1.0 --package-id $CC_PACKAGE_ID --sequence 1 --init-required
+#     peer lifecycle chaincode checkcommitreadiness --channelID mychannel --name asset --version 1.0 --sequence 1 --init-required --output json
+#     peer lifecycle chaincode commit -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name asset --version 1.0 --sequence 1 --init-required --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem
+#     peer chaincode invoke -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem -C mychannel -n asset --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem -c '{"Args":["InitLedger"]}' --isInit
+#     peer chaincode query -C mychannel -n asset -c '{"Args":["GetAllAssets"]}'
+#     exit
+
+
+  # # 5. CA SERVICE (Org1) Bổ sung sau khi đã test xong mạng cơ bản (query chaincode)
+  # ca.org1.example.com:
+  #   container_name: ca.org1.example.com
+  #   image: hyperledger/fabric-ca:1.5.9
+  #   hostname: ca.org1.example.com
+  #   command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
+  #   environment:
+  #     - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+  #     - FABRIC_CA_SERVER_CA_NAME=ca-org1
+  #     - FABRIC_CA_SERVER_TLS_ENABLED=true
+  #     - FABRIC_CA_SERVER_PORT=7054
+  #   ports:
+  #     - "7054:7054"
+  #   volumes:
+  #     # Ánh xạ chứng chỉ đã sinh ra cho CA (Root CA)
+  #     - ./crypto-config/peerOrganizations/org1.example.com/ca/:/etc/hyperledger/fabric-ca-server/
+  #   networks:
+  #     - fabric-net

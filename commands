@@ -9,6 +9,7 @@
     
     docker exec -it cli bash
     peer channel create -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/mychannel.tx --outputBlock ./mychannel.block --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
+    # peer channel create -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/mychannel.tx --outputBlock ./mychannel.block --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tls/ca.crt
     peer channel join -b mychannel.block
     peer channel update -o orderer.example.com:7050 -c mychannel --ordererTLSHostnameOverride orderer.example.com -f ./channel-artifacts/Org1MSPanchors.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
 
@@ -20,4 +21,19 @@
     peer lifecycle chaincode commit -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem --channelID mychannel --name asset --version 1.0 --sequence 1 --init-required --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem
     peer chaincode invoke -o orderer.example.com:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem -C mychannel -n asset --peerAddresses peer0.org1.example.com:7051 --tlsRootCertFiles /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto-config/peerOrganizations/org1.example.com/tlsca/tlsca.org1.example.com-cert.pem -c '{"Args":["InitLedger"]}' --isInit
     peer chaincode query -C mychannel -n asset -c '{"Args":["GetAllAssets"]}'
-    
+    exit
+
+    ORG_MSP_PATH=./crypto-config/peerOrganizations/org1.example.com
+    cp $ORG_MSP_PATH/users/Admin@org1.example.com/msp/signcerts/* $ORG_MSP_PATH/peers/peer0.org1.example.com/msp/admincerts/
+
+    ORG_CA_FILE=$(ls ./crypto-config/peerOrganizations/org1.example.com/ca/*_sk)
+    cp ./crypto-config/peerOrganizations/org1.example.com/ca/$ORG_CA_FILE/../*.pem ./crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp/cacerts/
+
+~/fabric-prototype
+    npm install -g @nestjs/cli
+    nest new backend-api --package-manager npm
+    cd backend-api
+    npm install fabric-network fabric-ca-client @nestjs/config
+    mkdir -p fabric-config
+    # Add fabric-config/connection-profile.json, src/fabric/[fabric.service.ts, fabric.module.ts], src/asset/[asset.module.ts, asset.service.ts, asset.controller.ts] and modify src/app.module.ts 
+    npm run start:dev
